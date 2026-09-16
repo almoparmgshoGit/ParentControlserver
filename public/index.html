@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Parent Control Admin</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #000; color: #fff; padding: 20px; }
+        .card { background: #111; border: 1px solid #333; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        td, th { padding: 12px; text-align: left; border-bottom: 1px solid #222; }
+        .btn { padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; color: white; font-weight: bold; margin-right: 5px; }
+        .btn-stream { background: #5856d6; }
+        .btn-stop { background: #555; }
+        .btn-location { background: #34c759; }
+        .btn-lock { background: #ff3b30; }
+        .btn-uninstall { background: #000; border: 1px solid #ff3b30; color: #ff3b30; }
+        .btn-uninstall:hover { background: #ff3b30; color: #fff; }
+        #mirror-view { width: 300px; display: none; margin: 20px auto; border: 5px solid #333; border-radius: 10px; }
+        .status { padding: 4px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+        .online { background: #34c759; color: #000; }
+        .offline { background: #ff3b30; color: #fff; }
+        #location-info { margin-top: 10px; color: #34c759; font-weight: bold; text-align: center; display: none; }
+    </style>
+</head>
+<body>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>🛡️ Control Panel</h1>
+        <a href="/logout" style="color: #ff3b30; text-decoration: none; font-weight: bold;">Logout</a>
+    </div>
+    <div class="card">
+        <table>
+            <thead>
+                <tr><th>Device</th><th>Status</th><th>Battery</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="device-list">
+                <tr><td colspan="4" style="text-align:center">Waiting...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div id="location-info"></div>
+    <img id="mirror-view" src="" alt="Live View">
+
+    <script>
+        const socket = io();
+        const list = document.getElementById('device-list');
+        const mirror = document.getElementById('mirror-view');
+        const locInfo = document.getElementById('location-info');
+
+        socket.on('UPDATE_DEVICE_LIST', (devices) => {
+            if (devices.length === 0) {
+                list.innerHTML = '<tr><td colspan="4" style="text-align:center">No devices found.</td></tr>';
+                return;
+            }
+            list.innerHTML = devices.map(dev => `
+                <tr>
+                    <td><b>${dev.manufacturer} ${dev.model}</b></td>
+                    <td><span class="status ${dev.online ? 'online' : 'offline'}">${dev.online ? 'ONLINE' : 'OFFLINE'}</span></td>
+                    <td>${dev.batteryLevel?.toFixed(0) || '--'}%</td>
+                    <td>
+                        <button class="btn btn-stream" onclick="socket.emit('START_MIRRORING', '${dev.deviceId}')">Stream</button>
+                        <button class="btn btn-stop" onclick="socket.emit('STOP_MIRRORING', '${dev.deviceId}')">Stop</button>
+                        <button class="btn btn-location" onclick="socket.emit('REQUEST_LOCATION', '${dev.deviceId}')">Location</button>
+                        <button class="btn btn-lock" onclick="socket.emit('SEND_LOCK_COMMAND', '${dev.deviceId}')">Lock</button>
+                        <button class="btn btn-uninstall" onclick="if(confirm('Are you sure? This will remove the app from the child device.')) socket.emit('SEND_UNINSTALL_COMMAND', '${dev.deviceId}')">Uninstall</button>
+                    </td>
+                </tr>
+            `).join('');
+        });
+
+        socket.on('UPDATE_SCREEN_FRAME', (data) => {
+            mirror.style.display = 'block';
+            mirror.src = 'data:image/jpeg;base64,' + data.frame;
+        });
+
+        socket.on('HIDE_SCREEN_VIEW', () => {
+            mirror.style.display = 'none';
+            mirror.src = '';
+        });
+
+        socket.on('UPDATE_LOCATION', (data) => {
+            locInfo.style.display = 'block';
+            locInfo.innerHTML = `📍 Location: <a href="https://www.google.com/maps?q=${data.latitude},${data.longitude}" target="_blank" style="color:#fff">View on Google Maps</a> (Acc: ${data.accuracy.toFixed(1)}m)`;
+        });
+
+        // Request update every 2 seconds
+        setInterval(() => socket.emit('REQUEST_SYNC'), 2000);
+    </script>
+</body>
+</html>
