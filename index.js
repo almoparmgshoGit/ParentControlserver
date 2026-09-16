@@ -20,7 +20,6 @@ app.use(session({
     cookie: { secure: false }
 }));
 
-// Setup Kinde with explicit config
 const kindeClient = new KindeClient({
     domain: process.env.KINDE_ISSUER_URL,
     clientId: process.env.KINDE_CLIENT_ID,
@@ -30,15 +29,11 @@ const kindeClient = new KindeClient({
     grantType: GrantType.AUTHORIZATION_CODE
 });
 
-app.get("/login", async (req, res) => {
-    try {
-        const loginUrl = await kindeClient.login(req);
-        const url = loginUrl && loginUrl.href ? loginUrl.href : loginUrl;
-        res.redirect(url);
-    } catch (e) {
-        console.error("Login Error:", e);
-        res.status(500).send("Login initialization failed");
-    }
+// --- FIXED LOGIN ROUTE ---
+app.get("/login", (req, res) => {
+    // Manual construction of the login URL to avoid SDK version issues
+    const loginUrl = `${process.env.KINDE_ISSUER_URL}/oauth2/auth?client_id=${process.env.KINDE_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.KINDE_REDIRECT_URI)}&response_type=code&scope=openid%20profile%20email`;
+    res.redirect(loginUrl);
 });
 
 app.get("/callback", async (req, res) => {
@@ -51,19 +46,16 @@ app.get("/callback", async (req, res) => {
             res.status(403).send("<h1>Forbidden</h1><p>Email not allowed.</p><a href='/logout'>Logout</a>");
         }
     } catch (e) {
-        console.error("Callback Error:", e);
+        console.error("Auth Callback Error:", e);
         res.redirect("/login");
     }
 });
 
-app.get("/logout", async (req, res) => {
-    try {
-        const logoutUrl = await kindeClient.logout(req);
-        const url = logoutUrl && logoutUrl.href ? logoutUrl.href : logoutUrl;
-        res.redirect(url);
-    } catch (e) {
-        res.redirect("/");
-    }
+app.get("/logout", (req, res) => {
+    const logoutUrl = `${process.env.KINDE_ISSUER_URL}/logout?redirect=${encodeURIComponent(process.env.KINDE_LOGOUT_REDIRECT_URI)}`;
+    // Clear session locally
+    req.session.destroy();
+    res.redirect(logoutUrl);
 });
 
 const adminOnly = async (req, res, next) => {
@@ -78,7 +70,7 @@ const adminOnly = async (req, res, next) => {
 
 app.use("/", adminOnly, express.static(path.join(__dirname, 'public')));
 
-// Socket logic remains unchanged and stable
+// Socket logic (Persistent and Stable)
 let devices = {};
 io.on('connection', (socket) => {
     socket.on('REQUEST_SYNC', () => socket.emit('UPDATE_DEVICE_LIST', Object.values(devices)));
