@@ -31,8 +31,14 @@ const kindeClient = new KindeClient({
 });
 
 app.get("/login", async (req, res) => {
-    const loginUrl = await kindeClient.login(req);
-    res.redirect(loginUrl.href);
+    try {
+        const loginUrl = await kindeClient.login(req);
+        const url = loginUrl && loginUrl.href ? loginUrl.href : loginUrl;
+        res.redirect(url);
+    } catch (e) {
+        console.error("Login Error:", e);
+        res.status(500).send("Login initialization failed");
+    }
 });
 
 app.get("/callback", async (req, res) => {
@@ -45,13 +51,19 @@ app.get("/callback", async (req, res) => {
             res.status(403).send("<h1>Forbidden</h1><p>Email not allowed.</p><a href='/logout'>Logout</a>");
         }
     } catch (e) {
+        console.error("Callback Error:", e);
         res.redirect("/login");
     }
 });
 
 app.get("/logout", async (req, res) => {
-    const logoutUrl = await kindeClient.logout(req);
-    res.redirect(logoutUrl.href);
+    try {
+        const logoutUrl = await kindeClient.logout(req);
+        const url = logoutUrl && logoutUrl.href ? logoutUrl.href : logoutUrl;
+        res.redirect(url);
+    } catch (e) {
+        res.redirect("/");
+    }
 });
 
 const adminOnly = async (req, res, next) => {
