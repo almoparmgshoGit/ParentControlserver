@@ -2,10 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const session = require('express-session');
 const helmet = require('helmet');
 const path = require('path');
-const { setupKinde, protectRoute } = require("@kinde-oss/kinde-nodejs-sdk");
+const { setupKinde, protectRoute, getUser } = require("@kinde-oss/kinde-node-express");
 
 const app = express();
 const server = http.createServer(app);
@@ -16,52 +15,41 @@ app.use(helmet({
     contentSecurityPolicy: false,
 }));
 
-// Session Setup (Required for Kinde)
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'kinde-secret-123',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false }
-}));
-
-const kindeConfig = {
+// Kinde Configuration for Express SDK
+const config = {
     clientId: process.env.KINDE_CLIENT_ID,
     issuerBaseUrl: process.env.KINDE_ISSUER_URL,
     siteUrl: process.env.KINDE_SITE_URL,
     secret: process.env.KINDE_CLIENT_SECRET,
-    redirectUri: process.env.KINDE_REDIRECT_URI,
-    postLogoutRedirectUri: process.env.KINDE_LOGOUT_REDIRECT_URI,
+    redirectUrl: process.env.KINDE_REDIRECT_URI,
+    postLogoutRedirectUrl: process.env.KINDE_LOGOUT_REDIRECT_URI,
+    unAuthorisedUrl: process.env.KINDE_SITE_URL + "/unauthorised",
 };
 
-const kindeClient = setupKinde(kindeConfig);
-
-// Kinde Auth Routes
-app.get("/login", kindeClient.login(), (req, res) => {});
-app.get("/register", kindeClient.register(), (req, res) => {});
-app.get("/callback", kindeClient.callback(), async (req, res) => {
-    const user = await kindeClient.getUser(req);
-    if (user && user.email === process.env.ALLOWED_ADMIN_EMAIL) {
-        res.redirect("/");
-    } else {
-        // If email doesn't match, logout immediately
-        res.redirect("/logout");
-    }
-});
-app.get("/logout", kindeClient.logout());
+// This sets up /login, /logout, /register, and the callback route automatically
+setupKinde(config, app);
 
 // Protection Middleware with Admin Email check
-const adminOnly = async (req, res, next) => {
-    if (await kindeClient.isAuthenticated(req)) {
-        const user = await kindeClient.getUser(req);
-        if (user.email === process.env.ALLOWED_ADMIN_EMAIL) {
-            return next();
-        }
-        return res.status(403).send("Unauthorized Email");
+const adminOnly = (req, res, next) => {
+    const user = getUser(req);
+    if (user && user.email === process.env.ALLOWED_ADMIN_EMAIL) {
+        return next();
     }
+    // If authenticated but not admin, redirect or show error
+    if (user) {
+        return res.status(403).send("<h1>Access Denied</h1><p>This email is not authorized to access the control panel.</p><a href='/logout'>Logout</a>");
+    }
+    // If not authenticated, setupKinde's protectRoute would usually handle this,
+    // but we use our own check here to ensure email matching.
     res.redirect("/login");
 };
 
-app.use("/", adminOnly, express.static(path.join(__dirname, 'public')));
+// Protect the entire dashboard
+app.use("/", protectRoute, adminOnly, express.static(path.join(__dirname, 'public')));
+
+app.get("/unauthorised", (req, res) => {
+    res.status(403).send("<h1>Unauthorised</h1><p>You do not have permission to view this page.</p>");
+});
 
 // Devices indexed by their unique deviceId
 let devices = {};

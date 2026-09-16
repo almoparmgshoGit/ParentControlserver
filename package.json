@@ -6,7 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@kinde-oss/kinde-nodejs-sdk": "^2.1.0",
+    "@kinde-oss/kinde-node-express": "latest",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "express-session": "^1.18.0",
