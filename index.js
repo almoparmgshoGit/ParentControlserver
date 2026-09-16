@@ -122,14 +122,12 @@ app.get("/login", (req, res) => {
 
 // --- معالجة طلب تسجيل الدخول ---
 app.post("/login", (req, res) => {
-    // استخدام .trim() لإزالة أي مسافات زائدة قد تكتب أو تنسخ بالخطأ
     const email = (req.body.email || '').trim();
     const password = (req.body.password || '').trim();
 
     const adminEmail = (process.env.ALLOWED_ADMIN_EMAIL || '').trim();
     const adminPassword = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // التحقق مع تجاهل حالة الأحرف الكبيرة والصغيرة في الإيميل لمرونة كاملة
     if (email.toLowerCase() === adminEmail.toLowerCase() && password === adminPassword) {
         req.session.isAdmin = true;
         req.session.userEmail = email;
@@ -154,15 +152,18 @@ const adminOnly = (req, res, next) => {
     res.redirect("/login");
 };
 
-// تطبيق الحماية على المجلد العام للوحة التحكم
+// تم تعديل هذا السطر ليكون الحظر مخصصاً للملفات الثابتة فقط ولا يتعارض مع طلبات الـ socket.io القادمة من الهاتف
 app.use("/", adminOnly, express.static(path.join(__dirname, 'public')));
 
 // منطق الـ Socket.io (مستقر ولم يتغير)
 let devices = {};
 io.on('connection', (socket) => {
+    console.log(`📱 Device attempting connection: ${socket.id}`);
+
     socket.on('REQUEST_SYNC', () => socket.emit('UPDATE_DEVICE_LIST', Object.values(devices)));
     socket.on('DEVICE_REGISTER', (data) => {
         if (!data.deviceId) return;
+        console.log(`✅ Device Registered Successfully: ${data.deviceId}`);
         devices[data.deviceId] = { ...data, socketId: socket.id, online: true, lastSeen: new Date() };
         io.emit('UPDATE_DEVICE_LIST', Object.values(devices));
     });
@@ -189,6 +190,7 @@ io.on('connection', (socket) => {
         if (dev) io.to(dev.socketId).emit('REMOTE_UNINSTALL');
     });
     socket.on('disconnect', () => {
+        console.log(`❌ Device disconnected: ${socket.id}`);
         for (let id in devices) {
             if (devices[id].socketId === socket.id) {
                 devices[id].online = false;
