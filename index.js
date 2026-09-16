@@ -3,25 +3,30 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const session = require('express-session');
-const helmet = require('helmet');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 // لتمكين قراءة البيانات المرسلة من فورم تسجيل الدخول (POST request)
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-app.use(helmet({ contentSecurityPolicy: false }));
+// تم إيقاف Helmet مؤقتاً لحل مشكلة البطء الشديد والـ Timeout الناتجة عن حظر الاتصالات على الـ IP المباشر
+// app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'stable-key-999',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false,
+        secure: false, // يجب أن تكون false لأننا نستخدم http وليس https حالياً
         maxAge: 24 * 60 * 60 * 1000 // الجلسة تستمر لمدة يوم كامل
     }
 }));
@@ -111,7 +116,7 @@ app.get("/login", (req, res) => {
                     </div>
                     <button type="submit">تسجيل الدخول</button>
                 </form>
-                ${req.query.error ? `<div class="error">البريد الإلكتروني أو كلمة المرور غير صحيحة!</div>` : ''}
+                ${req.query.error ? \`<div class="error">البريد الإلكتروني أو كلمة المرور غير صحيحة!</div>\` : ''}
             </div>
         </body>
         </html>
