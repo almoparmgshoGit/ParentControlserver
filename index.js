@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const session = require('express-session');
 const helmet = require('helmet');
 const path = require('path');
+const crypto = require('crypto');
 const { KindeClient, GrantType } = require("@kinde-oss/kinde-nodejs-sdk");
 
 const app = express();
@@ -29,15 +30,19 @@ const kindeClient = new KindeClient({
     grantType: GrantType.AUTHORIZATION_CODE
 });
 
-// --- FIXED LOGIN ROUTE ---
+// --- FIXED LOGIN ROUTE WITH STATE ---
 app.get("/login", (req, res) => {
-    // Manual construction of the login URL to avoid SDK version issues
-    const loginUrl = `${process.env.KINDE_ISSUER_URL}/oauth2/auth?client_id=${process.env.KINDE_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.KINDE_REDIRECT_URI)}&response_type=code&scope=openid%20profile%20email`;
+    // Generate a secure random state (at least 8 chars as required by Kinde)
+    const state = crypto.randomBytes(16).toString('hex');
+    req.session.kinde_state = state;
+
+    const loginUrl = `${process.env.KINDE_ISSUER_URL}/oauth2/auth?client_id=${process.env.KINDE_CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.KINDE_REDIRECT_URI)}&response_type=code&scope=openid%20profile%20email&state=${state}`;
     res.redirect(loginUrl);
 });
 
 app.get("/callback", async (req, res) => {
     try {
+        // The SDK will internally handle state verification if present in the URL
         await kindeClient.getToken(req);
         const user = await kindeClient.getUserDetails(req);
         if (user && user.email === process.env.ALLOWED_ADMIN_EMAIL) {
@@ -53,7 +58,6 @@ app.get("/callback", async (req, res) => {
 
 app.get("/logout", (req, res) => {
     const logoutUrl = `${process.env.KINDE_ISSUER_URL}/logout?redirect=${encodeURIComponent(process.env.KINDE_LOGOUT_REDIRECT_URI)}`;
-    // Clear session locally
     req.session.destroy();
     res.redirect(logoutUrl);
 });
