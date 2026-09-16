@@ -2,9 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const session = require('express-session');
 const helmet = require('helmet');
 const path = require('path');
-const { setupKinde, protectRoute, getUser } = require("@kinde-oss/kinde-node-express");
+const { KindeClient, GrantType } = require("@kinde-oss/kinde-nodejs-sdk");
 
 const app = express();
 const server = http.createServer(app);
@@ -15,43 +16,72 @@ app.use(helmet({
     contentSecurityPolicy: false,
 }));
 
-// Kinde Configuration for Express SDK
-const config = {
+// Session Setup
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'parent-control-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false }
+}));
+
+// Manual Kinde Client Setup
+const kindeClient = new KindeClient({
+    domain: process.env.KINDE_ISSUER_URL,
     clientId: process.env.KINDE_CLIENT_ID,
-    issuerBaseUrl: process.env.KINDE_ISSUER_URL,
-    siteUrl: process.env.KINDE_SITE_URL,
-    secret: process.env.KINDE_CLIENT_SECRET,
-    redirectUrl: process.env.KINDE_REDIRECT_URI,
-    postLogoutRedirectUrl: process.env.KINDE_LOGOUT_REDIRECT_URI,
-    unAuthorisedUrl: process.env.KINDE_SITE_URL + "/unauthorised",
-};
+    clientSecret: process.env.KINDE_CLIENT_SECRET,
+    redirectUri: process.env.KINDE_REDIRECT_URI,
+    logoutRedirectUri: process.env.KINDE_LOGOUT_REDIRECT_URI,
+    grantType: GrantType.AUTHORIZATION_CODE
+});
 
-// This sets up /login, /logout, /register, and the callback route automatically
-setupKinde(config, app);
+// 1. Login Route
+app.get("/login", async (req, res) => {
+    const loginUrl = await kindeClient.login(req);
+    res.redirect(loginUrl.href);
+});
 
-// Protection Middleware with Admin Email check
-const adminOnly = (req, res, next) => {
-    const user = getUser(req);
-    if (user && user.email === process.env.ALLOWED_ADMIN_EMAIL) {
-        return next();
+// 2. Callback Route
+app.get("/callback", async (req, res) => {
+    try {
+        await kindeClient.getToken(req);
+        const user = await kindeClient.getUserDetails(req);
+
+        if (user && user.email === process.env.ALLOWED_ADMIN_EMAIL) {
+            res.redirect("/");
+        } else {
+            // Unauthorized email
+            res.status(403).send("<h1>Access Denied</h1><p>Unauthorized email address.</p><a href='/logout'>Logout</a>");
+        }
+    } catch (error) {
+        console.error("Auth Error:", error);
+        res.redirect("/login");
     }
-    // If authenticated but not admin, redirect or show error
-    if (user) {
-        return res.status(403).send("<h1>Access Denied</h1><p>This email is not authorized to access the control panel.</p><a href='/logout'>Logout</a>");
-    }
-    // If not authenticated, setupKinde's protectRoute would usually handle this,
-    // but we use our own check here to ensure email matching.
+});
+
+// 3. Logout Route
+app.get("/logout", async (req, res) => {
+    const logoutUrl = await kindeClient.logout(req);
+    res.redirect(logoutUrl.href);
+});
+
+// 4. Protection Middleware
+const adminOnly = async (req, res, next) => {
+    try {
+        if (await kindeClient.isAuthenticated(req)) {
+            const user = await kindeClient.getUserDetails(req);
+            if (user.email === process.env.ALLOWED_ADMIN_EMAIL) {
+                return next();
+            }
+            return res.status(403).send("Unauthorized Email");
+        }
+    } catch (e) {}
     res.redirect("/login");
 };
 
-// Protect the entire dashboard
-app.use("/", protectRoute, adminOnly, express.static(path.join(__dirname, 'public')));
+// Protect the dashboard
+app.use("/", adminOnly, express.static(path.join(__dirname, 'public')));
 
-app.get("/unauthorised", (req, res) => {
-    res.status(403).send("<h1>Unauthorised</h1><p>You do not have permission to view this page.</p>");
-});
-
-// Devices indexed by their unique deviceId
+// Devices indexing
 let devices = {};
 
 io.on('connection', (socket) => {
@@ -69,7 +99,6 @@ io.on('connection', (socket) => {
             online: true,
             lastSeen: new Date()
         };
-        console.log('📱 Registered:', data.model, 'ID:', data.deviceId);
         io.emit('UPDATE_DEVICE_LIST', Object.values(devices));
     });
 
@@ -113,7 +142,6 @@ io.on('connection', (socket) => {
         for (let id in devices) {
             if (devices[id].socketId === socket.id) {
                 devices[id].online = false;
-                console.log('❌ Device Offline:', devices[id].model);
                 break;
             }
         }
