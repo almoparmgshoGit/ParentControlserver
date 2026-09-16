@@ -18,9 +18,6 @@ const io = new Server(server, {
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// تم إيقاف Helmet مؤقتاً لحل مشكلة البطء الشديد والـ Timeout الناتجة عن حظر الاتصالات على الـ IP المباشر
-// app.use(helmet({ contentSecurityPolicy: false }));
-
 app.use(session({
     secret: process.env.SESSION_SECRET || 'stable-key-999',
     resave: false,
@@ -116,7 +113,7 @@ app.get("/login", (req, res) => {
                     </div>
                     <button type="submit">تسجيل الدخول</button>
                 </form>
-                ${req.query.error ? \`<div class="error">البريد الإلكتروني أو كلمة المرور غير صحيحة!</div>\` : ''}
+                ${req.query.error ? '<div class="error">البريد الإلكتروني أو كلمة المرور غير صحيحة!</div>' : ''}
             </div>
         </body>
         </html>
@@ -125,13 +122,15 @@ app.get("/login", (req, res) => {
 
 // --- معالجة طلب تسجيل الدخول ---
 app.post("/login", (req, res) => {
-    const { email, password } = req.body;
+    // استخدام .trim() لإزالة أي مسافات زائدة قد تكتب أو تنسخ بالخطأ
+    const email = (req.body.email || '').trim();
+    const password = (req.body.password || '').trim();
 
-    const adminEmail = process.env.ALLOWED_ADMIN_EMAIL;
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminEmail = (process.env.ALLOWED_ADMIN_EMAIL || '').trim();
+    const adminPassword = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // التحقق من البيانات وتطابقها تماماً مع الموجود في الـ .env
-    if (email === adminEmail && password === adminPassword) {
+    // التحقق مع تجاهل حالة الأحرف الكبيرة والصغيرة في الإيميل لمرونة كاملة
+    if (email.toLowerCase() === adminEmail.toLowerCase() && password === adminPassword) {
         req.session.isAdmin = true;
         req.session.userEmail = email;
         return res.redirect("/");
